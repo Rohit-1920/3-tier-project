@@ -1,0 +1,93 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_USER    = 'kalpsoni18'
+        BACKEND_IMAGE     = "${DOCKERHUB_USER}/taskflow-backend"
+        IMAGE_TAG         = "${BUILD_NUMBER}"
+        MANIFEST_REPO     = 'https://github.com/kalpsoni18/three-tier-eks-project.git'
+    }
+
+    stages {
+
+        stage('📥 Checkout Code') {
+            steps {
+                checkout scm
+                echo "✅ Code checked out — Build #${BUILD_NUMBER}"
+            }
+        }
+
+        stage('📦 Install Dependencies') {
+            steps {
+                dir('Application-Code/backend') {
+                    sh 'npm install'
+                }
+            }
+        }
+
+        stage('🔍 Security Scan (Trivy)') {
+            steps {
+                dir('Application-Code/backend') {
+                    sh '''
+                        trivy fs --exit-code 0 \
+                          --severity HIGH,CRITICAL \
+                          --no-progress .
+                    '''
+                }
+            }
+        }
+
+        stage('🐳 Build Docker Image') {
+            steps {
+                dir('Application-Code/backend') {
+                    sh "docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} ."
+                    sh "docker tag ${BACKEND_IMAGE}:${IMAGE_TAG} ${BACKEND_IMAGE}:latest"
+                }
+            }
+        }
+
+        stage('🔐 Push to DockerHub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                    sh "docker push ${BACKEND_IMAGE}:${IMAGE_TAG}"
+                    sh "docker push ${BACKEND_IMAGE}:latest"
+                }
+            }
+        }
+
+        stage('📝 Update K8s Manifest') {
+            steps {
+                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                    sh '''
+                        git config user.email "jenkins@taskflow.com"
+                        git config user.name "Jenkins CI"
+                        sed -i "s|image: ${DOCKERHUB_USER}/taskflow-backend:.*|image: ${DOCKERHUB_USER}/taskflow-backend:${IMAGE_TAG}|" k8s_manifests/backend/deploy.yaml
+                        git add k8s_manifests/backend/deploy.yaml
+                        git commit -m "🚀 [CI] Update backend image to ${IMAGE_TAG} [skip ci]"
+                        git push https://${GH_TOKEN}@github.com/kalpsoni18/three-tier-eks-project.git HEAD:main
+                    '''
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo "✅ Backend pipeline succeeded — Image: ${BACKEND_IMAGE}:${IMAGE_TAG}"
+        }
+        failure {
+            echo "❌ Backend pipeline FAILED — Check logs above"
+        }
+        always {
+            // Clean up local images to save disk space
+            sh "docker rmi ${BACKEND_IMAGE}:${IMAGE_TAG} || true"
+            sh "docker rmi ${BACKEND_IMAGE}:latest || true"
+        }
+    }
+}
