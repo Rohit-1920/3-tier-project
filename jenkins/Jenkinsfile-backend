@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_USER    = 'kalpsoni18'
+        DOCKERHUB_USER    = 'kalpsoni'
         BACKEND_IMAGE     = "${DOCKERHUB_USER}/taskflow-backend"
         IMAGE_TAG         = "${BUILD_NUMBER}"
         MANIFEST_REPO     = 'https://github.com/kalpsoni18/three-tier-eks-project.git'
