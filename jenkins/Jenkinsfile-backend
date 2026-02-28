@@ -1,22 +1,18 @@
 pipeline {
     agent any
-
     environment {
         DOCKERHUB_USER    = 'kalpsoni'
         BACKEND_IMAGE     = "${DOCKERHUB_USER}/taskflow-backend"
         IMAGE_TAG         = "${BUILD_NUMBER}"
         MANIFEST_REPO     = 'https://github.com/kalpsoni18/three-tier-eks-project.git'
     }
-
     stages {
-
         stage('📥 Checkout Code') {
             steps {
                 checkout scm
                 echo "✅ Code checked out — Build #${BUILD_NUMBER}"
             }
         }
-
         stage('📦 Install Dependencies') {
             steps {
                 dir('Application-Code/backend') {
@@ -24,7 +20,6 @@ pipeline {
                 }
             }
         }
-
         stage('🔍 Security Scan (Trivy)') {
             steps {
                 dir('Application-Code/backend') {
@@ -36,7 +31,6 @@ pipeline {
                 }
             }
         }
-
         stage('🐳 Build Docker Image') {
             steps {
                 dir('Application-Code/backend') {
@@ -45,7 +39,6 @@ pipeline {
                 }
             }
         }
-
         stage('🔐 Push to DockerHub') {
             steps {
                 withCredentials([usernamePassword(
@@ -59,22 +52,21 @@ pipeline {
                 }
             }
         }
-
         stage('📝 Update K8s Manifest') {
-    steps {
-        withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
-            sh """
-                git config user.email "jenkins@taskflow.com"
-                git config user.name "Jenkins CI"
-                sed -i "s|image: kalpsoni/taskflow-backend:.*|image: kalpsoni/taskflow-backend:${IMAGE_TAG}|" k8s_manifests/backend/deploy.yaml
-                git add k8s_manifests/backend/deploy.yaml
-                git commit -m "CI: Update backend image to ${IMAGE_TAG}"
-                git push https://\${GH_TOKEN}@github.com/kalpsoni18/three-tier-eks-project.git HEAD:main
-            """
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
+                    sh """
+                        git config user.email "jenkins@taskflow.com"
+                        git config user.name "Jenkins CI"
+                        sed -i "s|image: kalpsoni/taskflow-backend:.*|image: kalpsoni/taskflow-backend:${IMAGE_TAG}|" k8s_manifests/backend/deploy.yaml
+                        git add k8s_manifests/backend/deploy.yaml
+                        git commit -m "CI: Update backend image to ${IMAGE_TAG}"
+                        git push https://\${GH_TOKEN}@github.com/kalpsoni18/three-tier-eks-project.git HEAD:main
+                    """
+                }
+            }
         }
-    }
-}
-
+    }                      
     post {
         success {
             echo "✅ Backend pipeline succeeded — Image: ${BACKEND_IMAGE}:${IMAGE_TAG}"
@@ -83,7 +75,6 @@ pipeline {
             echo "❌ Backend pipeline FAILED — Check logs above"
         }
         always {
-            // Clean up local images to save disk space
             sh "docker rmi ${BACKEND_IMAGE}:${IMAGE_TAG} || true"
             sh "docker rmi ${BACKEND_IMAGE}:latest || true"
         }
